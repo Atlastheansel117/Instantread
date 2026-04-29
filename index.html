@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>輕閱讀</title>
-  <!-- 改用 jsdelivr CDN，企業網路更友善 -->
   <script src="https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.js"></script>
   <style>
     :root {
@@ -245,26 +244,23 @@
 
   <script>
     (function() {
-      // 檢查 Dexie 是否成功載入
       if (typeof Dexie === 'undefined') {
-        alert('Dexie.js 載入失敗，請檢查網路或換用其他瀏覽器（建議 Chrome/Edge）。');
+        alert('Dexie.js 載入失敗，請檢查網路或換用 Chrome/Edge。');
         return;
       }
 
-      /* ====== 資料庫設定 (Dexie) ====== */
+      // 資料庫版本升級為 2，並使用 ++id 自動主鍵
       const db = new Dexie('LightReaderDB');
-      db.version(1).stores({
+      db.version(2).stores({
         books: '++id, title, addedAt, *chaptersJson, progress, fontsize, darkmode',
         bookmarks: '++id, bookId, chapterIndex, pageIndex, text, createdAt'
       });
 
-      // 測試資料庫能否開啟
       db.open().catch(err => {
-        alert('無法開啟本地資料庫，可能被瀏覽器封鎖（無痕模式？公司政策？）。\n建議使用一般模式或 Chrome/Edge。\n錯誤：' + err.message);
+        alert('無法開啟本地資料庫，可能被瀏覽器阻擋。\n建議使用一般模式或 Chrome/Edge。\n錯誤：' + err.message);
         console.error('DB open error:', err);
       });
 
-      /* ====== 全域狀態 ====== */
       let currentBook = null;
       let chapters = [];
       let currentChapterIdx = 0;
@@ -339,7 +335,6 @@
             const line = testDiv.textContent.slice(0, -1);
             pages.push(line);
             testDiv.textContent = words[i];
-            currentPage = words[i];
           }
         }
         if (testDiv.textContent.trim().length > 0) {
@@ -495,7 +490,8 @@
         const books = await db.books.orderBy('addedAt').reverse().toArray();
         const bookList = document.getElementById('bookList');
         bookList.innerHTML = books.map(b => {
-          const progress = b.progress ? `進度 ${Math.round((b.progress.chapterIdx / (chaptersFromJson(b.chaptersJson).length || 1))*100)}%` : '尚未閱讀';
+          const chaps = chaptersFromJson(b.chaptersJson);
+          const progress = b.progress ? `進度 ${Math.round((b.progress.chapterIdx / (chaps.length || 1))*100)}%` : '尚未閱讀';
           return `
             <li class="book-card" data-id="${b.id}">
               <button class="delete-book" data-id="${b.id}">✕</button>
