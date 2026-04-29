@@ -254,8 +254,8 @@
       /* ====== 資料庫設定 (Dexie) ====== */
       const db = new Dexie('LightReaderDB');
       db.version(1).stores({
-        books: 'id, title, addedAt, *chaptersJson, progress, fontsize, darkmode',
-        bookmarks: 'id, bookId, chapterIndex, pageIndex, text, createdAt'
+        books: '++id, title, addedAt, *chaptersJson, progress, fontsize, darkmode',
+        bookmarks: '++id, bookId, chapterIndex, pageIndex, text, createdAt'
       });
 
       // 測試資料庫能否開啟
