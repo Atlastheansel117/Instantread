@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>輕閱讀</title>
+  <!-- 引入 Dexie.js 簡化 IndexedDB 操作 -->
+  <script src="https://unpkg.com/dexie@3.2.4/dist/dexie.js"></script>
+  <style>
+    :root {
+      --bg: #f5f0e8;
+      --text: #2c2c2c;
+      --surface: #fffdf7;
+      --border: #d3c9b8;
+      --accent: #5b7a6f;
+      --hover: #e8e0d0;
+    }
+    .dark {
+      --bg: #1e1e1e;
+      --text: #d4d4d4;
+      --surface: #2a2a2a;
+      --border: #444;
+      --accent: #8ab4a0;
+      --hover: #333;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Microsoft JhengHei", "PingFang TC", "Noto Sans TC", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      transition: background 0.3s, color 0.3s;
+    }
+    /* 書架 */
+    #shelf {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 2rem;
+      overflow-y: auto;
+    }
+    #shelf h1 {
+      font-size: 2rem;
+      margin-bottom: 1rem;
+      color: var(--accent);
+    }
+    #bookList {
+      list-style: none;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 1rem;
+    }
+    .book-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .book-card:hover { background: var(--hover); }
+    .book-title { font-weight: bold; margin-bottom: 0.5rem; }
+    .book-progress { font-size: 0.9rem; opacity: 0.7; }
+    .delete-book {
+      float: right;
+      background: none;
+      border: none;
+      color: var(--text);
+      opacity: 0.5;
+      cursor: pointer;
+    }
+    .upload-area {
+      margin-top: 2rem;
+      display: flex;
+      justify-content: center;
+    }
+    #uploadBtn {
+      padding: 0.8rem 2rem;
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 25px;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    /* 閱讀器 */
+    #reader {
+      display: none;
+      flex-direction: column;
+      height: 100vh;
+    }
+    .toolbar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0.5rem 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.8rem;
+      flex-wrap: wrap;
+    }
+    .toolbar button, .toolbar select {
+      background: var(--hover);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 0.3rem 0.6rem;
+      cursor: pointer;
+      color: var(--text);
+      font-size: 0.9rem;
+    }
+    .toolbar select { background: var(--surface); }
+    .chapter-title {
+      flex: 1;
+      font-weight: bold;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .content-area {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+    #sidebar {
+      width: 220px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      padding: 0.5rem;
+      display: none;
+    }
+    #chapterList { list-style: none; }
+    #chapterList li {
+      padding: 0.4rem;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    #chapterList li:hover, #chapterList li.active {
+      background: var(--hover);
+      font-weight: bold;
+    }
+    #pageContainer {
+      flex: 1;
+      padding: 2rem 1.5rem;
+      overflow-y: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: var(--bg);
+    }
+    .page-text {
+      max-width: 700px;
+      width: 100%;
+      height: 100%;
+      white-space: pre-wrap;
+      font-size: var(--font-size, 18px);
+      line-height: 1.8;
+      overflow-y: auto;
+      padding: 1rem;
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    }
+    .footer-bar {
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding: 0.5rem 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.9rem;
+    }
+    .bookmarks-panel {
+      position: fixed;
+      right: 0;
+      top: 0;
+      width: 280px;
+      height: 100vh;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      z-index: 100;
+      padding: 1rem;
+      overflow-y: auto;
+      display: none;
+    }
+    .bookmarks-panel h3 { margin-bottom: 0.8rem; }
+    .bookmark-item {
+      padding: 0.5rem;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+    }
+    .bookmark-item:hover { background: var(--hover); }
+    @media (max-width: 600px) {
+      #sidebar { width: 100%; position: absolute; z-index: 10; }
+      .toolbar { font-size: 0.8rem; }
+    }
+  </style>
+</head>
+<body>
+  <!-- 書架畫面 -->
+  <div id="shelf">
+    <h1>📚 我的書架</h1>
+    <ul id="bookList"></ul>
+    <div class="upload-area">
+      <input type="file" id="fileInput" accept=".txt" style="display:none">
+      <button id="uploadBtn">＋ 匯入 TXT 書籍</button>
+    </div>
+  </div>
+
+  <!-- 閱讀器畫面 -->
+  <div id="reader">
+    <div class="toolbar">
+      <button id="backBtn">← 書架</button>
+      <span class="chapter-title" id="chapterTitle">章節</span>
+      <select id="fontSizeSelect">
+        <option value="16">A</option>
+        <option value="18" selected>A</option>
+        <option value="20">A</option>
+        <option value="22">A</option>
+      </select>
+      <button id="toggleDark">🌓</button>
+      <button id="toggleChapterList">☰ 目錄</button>
+      <button id="bookmarkBtn">🔖 書籤</button>
+      <button id="ttsPlayBtn">▶ 朗讀</button>
+      <button id="ttsPauseBtn" style="display:none">⏸️ 暫停</button>
+      <button id="ttsStopBtn">⏹️ 停止</button>
+      <span id="progressPercent">0%</span>
+    </div>
+    <div class="content-area">
+      <div id="sidebar">
+        <ul id="chapterList"></ul>
+      </div>
+      <div id="pageContainer">
+        <div class="page-text" id="pageContent"></div>
+      </div>
+    </div>
+    <div class="footer-bar">
+      <span id="pageIndicator">第 1/1 頁</span>
+      <span id="keyHints">← → 翻頁 | 空白鍵 朗讀 | Ctrl+B 書籤</span>
+    </div>
+  </div>
+
+  <!-- 書籤面板 -->
+  <div class="bookmarks-panel" id="bookmarksPanel">
+    <h3>🔖 書籤列表</h3>
+    <button id="closeBookmarks" style="float:right">✕</button>
+    <div id="bookmarkList"></div>
+  </div>
+
+  <script>
+    (function() {
+      /* ====== 資料庫設定 (Dexie) ====== */
+      const db = new Dexie('LightReaderDB');
+      db.version(1).stores({
+        books: 'id, title, addedAt, *chaptersJson, progress, fontsize, darkmode',
+        bookmarks: 'id, bookId, chapterIndex, pageIndex, text, createdAt'
+      });
+
+      /* ====== 全域狀態 ====== */
+      let currentBook = null;         // 當前書籍物件
+      let chapters = [];             // [{title, content}]
+      let currentChapterIdx = 0;
+      let pagesCache = new Map();    // key: `${chapterIdx}-${fontSize}`, value: string[]
+      let currentPageIdx = 0;
+      let ttsUtterance = null;
+      let autoTTS = false;           // 是否自動朗讀下一頁
+
+      const pageContent = document.getElementById('pageContent');
+      const shelfDiv = document.getElementById('shelf');
+      const readerDiv = document.getElementById('reader');
+      const chapterTitle = document.getElementById('chapterTitle');
+      const progressPercent = document.getElementById('progressPercent');
+      const pageIndicator = document.getElementById('pageIndicator');
+      const chapterListUl = document.getElementById('chapterList');
+      const sidebar = document.getElementById('sidebar');
+      const bookmarksPanel = document.getElementById('bookmarksPanel');
+      const bookmarkListDiv = document.getElementById('bookmarkList');
+      const fontSizeSelect = document.getElementById('fontSizeSelect');
+      const darkModeBtn = document.getElementById('toggleDark');
+      const ttsPlayBtn = document.getElementById('ttsPlayBtn');
+      const ttsPauseBtn = document.getElementById('ttsPauseBtn');
+      const ttsStopBtn = document.getElementById('ttsStopBtn');
+
+      /* ====== 輔助函式 ====== */
+      function detectChapters(text) {
+        const lines = text.split(/\r?\n/);
+        const chapters = [];
+        let currentTitle = '前言';
+        let currentContent = [];
+        const chapterRegex = /^第[零一二三四五六七八九十百千\d]+章\s*.*/;
+        for (let line of lines) {
+          if (chapterRegex.test(line.trim())) {
+            if (currentContent.length > 0 || currentTitle !== '前言') {
+              chapters.push({ title: currentTitle, content: currentContent.join('\n') });
+            }
+            currentTitle = line.trim();
+            currentContent = [];
+          } else {
+            currentContent.push(line);
+          }
+        }
+        if (currentContent.length > 0 || currentTitle) {
+          chapters.push({ title: currentTitle, content: currentContent.join('\n') });
+        }
+        if (chapters.length === 0) {
+          chapters.push({ title: '全文', content: text });
+        }
+        return chapters;
+      }
+
+      function paginate(chapterContent, fontSize) {
+        const key = `${currentChapterIdx}-${fontSize}`;
+        if (pagesCache.has(key)) return pagesCache.get(key);
+        // 使用一個隱藏的測量容器
+        const testDiv = document.createElement('div');
+        testDiv.style.position = 'absolute';
+        testDiv.style.visibility = 'hidden';
+        testDiv.style.width = pageContent.clientWidth + 'px';
+        testDiv.style.fontSize = fontSize + 'px';
+        testDiv.style.lineHeight = '1.8';
+        testDiv.style.whiteSpace = 'pre-wrap';
+        testDiv.style.wordBreak = 'break-word';
+        testDiv.style.padding = '1rem';
+        testDiv.style.boxSizing = 'border-box';
+        document.body.appendChild(testDiv);
+        const maxHeight = pageContent.clientHeight - 4; // 考慮內邊距
+        const words = chapterContent;
+        let pages = [];
+        let currentPage = '';
+        testDiv.textContent = '';
+        for (let i = 0; i < words.length; i++) {
+          testDiv.textContent += words[i];
+          if (testDiv.scrollHeight > maxHeight) {
+            // 移除最後一個字，儲存前一頁
+            const line = testDiv.textContent.slice(0, -1);
+            pages.push(line);
+            testDiv.textContent = words[i];
+            currentPage = words[i];
+          }
+        }
+        if (testDiv.textContent.trim().length > 0) {
+          pages.push(testDiv.textContent);
+        }
+        document.body.removeChild(testDiv);
+        if (pages.length === 0) pages = [''];
+        pagesCache.set(key, pages);
+        return pages;
+      }
+
+      function renderPage() {
+        if (!currentBook || chapters.length === 0) return;
+        const fontSize = parseInt(fontSizeSelect.value);
+        const pages = paginate(chapters[currentChapterIdx].content, fontSize);
+        if (currentPageIdx >= pages.length) currentPageIdx = pages.length - 1;
+        if (currentPageIdx < 0) currentPageIdx = 0;
+        pageContent.textContent = pages[currentPageIdx] || '';
+        chapterTitle.textContent = chapters[currentChapterIdx].title;
+        pageIndicator.textContent = `第 ${currentChapterIdx+1}/${chapters.length} 章 · 頁 ${currentPageIdx+1}/${pages.length}`;
+        // 計算全書進度百分比
+        const totalChars = chapters.reduce((sum, ch) => sum + ch.content.length, 0);
+        let charsBefore = 0;
+        for (let i = 0; i < currentChapterIdx; i++) charsBefore += chapters[i].content.length;
+        const posInChapter = pages.slice(0, currentPageIdx).reduce((sum, p) => sum + p.length, 0);
+        const overallProgress = totalChars > 0 ? (charsBefore + posInChapter) / totalChars : 0;
+        progressPercent.textContent = Math.round(overallProgress * 100) + '%';
+        // 更新章節目錄高亮
+        document.querySelectorAll('#chapterList li').forEach((li, idx) => {
+          li.classList.toggle('active', idx === currentChapterIdx);
+        });
+        // 儲存進度
+        if (currentBook.id) {
+          db.books.update(currentBook.id, { progress: { chapterIdx: currentChapterIdx, pageIdx: currentPageIdx, fontSize: fontSize } });
+        }
+      }
+
+      function navigateToChapter(chapterIdx, pageIdx = 0) {
+        if (chapterIdx < 0 || chapterIdx >= chapters.length) return;
+        currentChapterIdx = chapterIdx;
+        currentPageIdx = pageIdx;
+        pagesCache.clear(); // 字型或章節改變需重建分頁
+        renderPage();
+      }
+
+      function nextPage() {
+        const pages = paginate(chapters[currentChapterIdx].content, parseInt(fontSizeSelect.value));
+        if (currentPageIdx < pages.length - 1) {
+          currentPageIdx++;
+        } else if (currentChapterIdx < chapters.length - 1) {
+          navigateToChapter(currentChapterIdx + 1, 0);
+        }
+        renderPage();
+      }
+
+      function prevPage() {
+        if (currentPageIdx > 0) {
+          currentPageIdx--;
+        } else if (currentChapterIdx > 0) {
+          const prevPages = paginate(chapters[currentChapterIdx-1].content, parseInt(fontSizeSelect.value));
+          navigateToChapter(currentChapterIdx - 1, prevPages.length - 1);
+        }
+        renderPage();
+      }
+
+      /* ====== 朗讀功能 ====== */
+      function stopTTS() {
+        speechSynthesis.cancel();
+        ttsUtterance = null;
+        ttsPlayBtn.style.display = '';
+        ttsPauseBtn.style.display = 'none';
+      }
+
+      function playCurrentPage() {
+        stopTTS();
+        const text = pageContent.textContent;
+        if (!text.trim()) return;
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'zh-TW';
+        utterance.rate = 0.9;
+        utterance.onend = () => {
+          if (autoTTS) {
+            nextPage();
+            if (currentBook) playCurrentPage();
+            else stopTTS();
+          } else {
+            stopTTS();
+          }
+        };
+        ttsUtterance = utterance;
+        speechSynthesis.speak(utterance);
+        ttsPlayBtn.style.display = 'none';
+        ttsPauseBtn.style.display = '';
+      }
+
+      function pauseTTS() {
+        if (speechSynthesis.speaking && !speechSynthesis.paused) {
+          speechSynthesis.pause();
+          ttsPlayBtn.style.display = '';
+          ttsPauseBtn.style.display = 'none';
+        }
+      }
+
+      function resumeTTS() {
+        if (speechSynthesis.paused) {
+          speechSynthesis.resume();
+          ttsPlayBtn.style.display = 'none';
+          ttsPauseBtn.style.display = '';
+        } else if (!speechSynthesis.speaking && ttsUtterance) {
+          playCurrentPage();
+        }
+      }
+
+      /* ====== 書籤管理 ====== */
+      async function addBookmark() {
+        if (!currentBook) return;
+        const pageText = pageContent.textContent.substring(0, 30);
+        await db.bookmarks.add({
+          bookId: currentBook.id,
+          chapterIndex: currentChapterIdx,
+          pageIndex: currentPageIdx,
+          text: pageText,
+          createdAt: Date.now()
+        });
+        loadBookmarks();
+      }
+
+      async function loadBookmarks() {
+        if (!currentBook) return;
+        const marks = await db.bookmarks.where('bookId').equals(currentBook.id).toArray();
+        bookmarkListDiv.innerHTML = marks.map(m => `
+          <div class="bookmark-item" data-chapter="${m.chapterIndex}" data-page="${m.pageIndex}">
+            📍 ${chapters[m.chapterIndex]?.title || '未知'} - 頁${m.pageIndex+1}<br>
+            <small>${m.text}...</small>
+            <button class="delete-book" data-id="${m.id}">🗑️</button>
+          </div>
+        `).join('');
+        // 綁定跳轉與刪除
+        bookmarkListDiv.querySelectorAll('.bookmark-item').forEach(el => {
+          el.addEventListener('click', (e) => {
+            if (e.target.tagName === 'BUTTON') return;
+            const ch = parseInt(el.dataset.chapter);
+            const pg = parseInt(el.dataset.page);
+            navigateToChapter(ch, pg);
+            bookmarksPanel.style.display = 'none';
+          });
+        });
+        bookmarkListDiv.querySelectorAll('.delete-book').forEach(btn => {
+          btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const id = parseInt(btn.dataset.id);
+            await db.bookmarks.delete(id);
+            loadBookmarks();
+          });
+        });
+      }
+
+      /* ====== 書籍載入與書架 ====== */
+      async function loadBookshelf() {
+        const books = await db.books.orderBy('addedAt').reverse().toArray();
+        const bookList = document.getElementById('bookList');
+        bookList.innerHTML = books.map(b => {
+          const progress = b.progress ? `進度 ${Math.round((b.progress.chapterIdx / (chaptersFromJson(b.chaptersJson).length || 1))*100)}%` : '尚未閱讀';
+          return `
+            <li class="book-card" data-id="${b.id}">
+              <button class="delete-book" data-id="${b.id}">✕</button>
+              <div class="book-title">${b.title}</div>
+              <div class="book-progress">${progress}</div>
+            </li>
+          `;
+        }).join('');
+        // 綁定點擊開啟書籍
+        document.querySelectorAll('.book-card').forEach(card => {
+          card.addEventListener('click', async (e) => {
+            if (e.target.classList.contains('delete-book')) return;
+            const id = parseInt(card.dataset.id);
+            await openBook(id);
+          });
+        });
+        // 綁定刪除按鈕
+        document.querySelectorAll('.delete-book').forEach(btn => {
+          btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const id = parseInt(btn.dataset.id);
+            await db.books.delete(id);
+            await db.bookmarks.where('bookId').equals(id).delete();
+            loadBookshelf();
+          });
+        });
+      }
+
+      function chaptersFromJson(json) {
+        try { return JSON.parse(json); } catch { return []; }
+      }
+
+      async function openBook(bookId) {
+        const book = await db.books.get(bookId);
+        if (!book) return;
+        currentBook = book;
+        chapters = chaptersFromJson(book.chaptersJson);
+        // 恢復進度
+        const prog = book.progress || { chapterIdx: 0, pageIdx: 0, fontSize: 18 };
+        currentChapterIdx = prog.chapterIdx || 0;
+        currentPageIdx = prog.pageIdx || 0;
+        fontSizeSelect.value = prog.fontSize || 18;
+        // 日夜模式
+        if (book.darkmode) document.body.classList.add('dark');
+        else document.body.classList.remove('dark');
+        // 重建章節列表
+        chapterListUl.innerHTML = chapters.map((ch, i) => `<li data-idx="${i}">${ch.title}</li>`).join('');
+        // 綁定點擊
+        chapterListUl.querySelectorAll('li').forEach(li => {
+          li.addEventListener('click', () => {
+            const idx = parseInt(li.dataset.idx);
+            navigateToChapter(idx, 0);
+            sidebar.style.display = 'none';
+          });
+        });
+        // 顯示閱讀器
+        shelfDiv.style.display = 'none';
+        readerDiv.style.display = 'flex';
+        pagesCache.clear();
+        renderPage();
+        loadBookmarks();
+        stopTTS();
+      }
+
+      async function importBook(file) {
+        const text = await file.text();
+        const title = file.name.replace(/\.txt$/i, '');
+        const chaps = detectChapters(text);
+        const chaptersJson = JSON.stringify(chaps);
+        const id = await db.books.add({
+          title,
+          chaptersJson,
+          addedAt: Date.now(),
+          progress: { chapterIdx: 0, pageIdx: 0, fontSize: 18 },
+          darkmode: false
+        });
+        // 預設字型與模式
+        fontSizeSelect.value = 18;
+        document.body.classList.remove('dark');
+        loadBookshelf();
+        // 直接打開新書
+        await openBook(id);
+      }
+
+      /* ====== 事件綁定 ====== */
+      // 上傳按鈕
+      document.getElementById('uploadBtn').addEventListener('click', () => {
+        document.getElementById('fileInput').click();
+      });
+      document.getElementById('fileInput').addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) importBook(file);
+        e.target.value = '';
+      });
+
+      // 回到書架
+      document.getElementById('backBtn').addEventListener('click', () => {
+        stopTTS();
+        readerDiv.style.display = 'none';
+        shelfDiv.style.display = 'flex';
+        currentBook = null;
+        loadBookshelf();
+        sidebar.style.display = 'none';
+        bookmarksPanel.style.display = 'none';
+      });
+
+      // 字型大小
+      fontSizeSelect.addEventListener('change', () => {
+        document.documentElement.style.setProperty('--font-size', fontSizeSelect.value + 'px');
+        pagesCache.clear();
+        if (currentBook) {
+          db.books.update(currentBook.id, { progress: { ...currentBook.progress, fontSize: parseInt(fontSizeSelect.value) } });
+          renderPage();
+        }
+      });
+
+      // 日夜模式
+      darkModeBtn.addEventListener('click', () => {
+        document.body.classList.toggle('dark');
+        if (currentBook) {
+          db.books.update(currentBook.id, { darkmode: document.body.classList.contains('dark') });
+        }
+      });
+
+      // 章節目錄切換
+      document.getElementById('toggleChapterList').addEventListener('click', () => {
+        sidebar.style.display = sidebar.style.display === 'none' ? 'block' : 'none';
+      });
+
+      // 書籤按鈕
+      document.getElementById('bookmarkBtn').addEventListener('click', () => {
+        bookmarksPanel.style.display = bookmarksPanel.style.display === 'none' ? 'block' : 'none';
+        loadBookmarks();
+      });
+      document.getElementById('closeBookmarks').addEventListener('click', () => {
+        bookmarksPanel.style.display = 'none';
+      });
+
+      // TTS 控制
+      ttsPlayBtn.addEventListener('click', () => {
+        autoTTS = false;
+        playCurrentPage();
+      });
+      ttsPauseBtn.addEventListener('click', pauseTTS);
+      ttsStopBtn.addEventListener('click', () => {
+        autoTTS = false;
+        stopTTS();
+      });
+
+      // 鍵盤快捷鍵
+      document.addEventListener('keydown', (e) => {
+        if (!currentBook) return;
+        if (e.key === 'ArrowRight') { e.preventDefault(); nextPage(); }
+        else if (e.key === 'ArrowLeft') { e.preventDefault(); prevPage(); }
+        else if (e.key === ' ') {
+          e.preventDefault();
+          if (speechSynthesis.speaking || speechSynthesis.pending) {
+            if (speechSynthesis.paused) resumeTTS();
+            else pauseTTS();
+          } else {
+            autoTTS = true; // 空白鍵啟動自動翻頁朗讀
+            playCurrentPage();
+          }
+        }
+        else if (e.ctrlKey && e.key === 'b') {
+          e.preventDefault();
+          addBookmark();
+        }
+      });
+
+      // 點擊閱讀區左右側翻頁 (可選)
+      pageContent.addEventListener('click', (e) => {
+        const rect = pageContent.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const width = rect.width;
+        if (x < width * 0.3) prevPage();
+        else if (x > width * 0.7) nextPage();
+      });
+
+      // 窗口大小改變時重新計算分頁
+      window.addEventListener('resize', () => {
+        if (currentBook) {
+          pagesCache.clear();
+          renderPage();
+        }
+      });
+
+      // 初始載入書架
+      loadBookshelf();
+    })();
+  </script>
+</body>
+</html>
