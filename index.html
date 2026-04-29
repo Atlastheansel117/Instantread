@@ -249,17 +249,27 @@
         return;
       }
 
-      // 資料庫版本升級為 2，並使用 ++id 自動主鍵
+      // 定義資料庫（版本 2，主鍵自動）
       const db = new Dexie('LightReaderDB');
       db.version(2).stores({
         books: '++id, title, addedAt, *chaptersJson, progress, fontsize, darkmode',
         bookmarks: '++id, bookId, chapterIndex, pageIndex, text, createdAt'
       });
 
-      db.open().catch(err => {
-        alert('無法開啟本地資料庫，可能被瀏覽器阻擋。\n建議使用一般模式或 Chrome/Edge。\n錯誤：' + err.message);
-        console.error('DB open error:', err);
-      });
+      // 先強制刪除舊版資料庫，避免主鍵衝突，再開啟
+      const deleteReq = indexedDB.deleteDatabase('LightReaderDB');
+      deleteReq.onsuccess = function () {
+        db.open().then(() => {
+          console.log('資料庫初始化成功');
+          loadBookshelf();
+        }).catch(err => {
+          alert('無法開啟本地資料庫，可能被瀏覽器阻擋。\n建議使用一般模式或 Chrome/Edge。\n錯誤：' + err.message);
+          console.error('DB open error:', err);
+        });
+      };
+      deleteReq.onerror = function () {
+        alert('無法清除舊資料，請手動在瀏覽器設定中刪除 LightReaderDB 後重整頁面。');
+      };
 
       let currentBook = null;
       let chapters = [];
@@ -659,7 +669,7 @@
         }
       });
 
-      loadBookshelf();
+      // loadBookshelf() 已在 db.open().then() 裡呼叫，這裡不需要再叫
     })();
   </script>
 </body>
