@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>輕閱讀</title>
-  <!-- 引入 Dexie.js 簡化 IndexedDB 操作 -->
-  <script src="https://unpkg.com/dexie@3.2.4/dist/dexie.js"></script>
+  <!-- 改用 jsdelivr CDN，企業網路更友善 -->
+  <script src="https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.js"></script>
   <style>
     :root {
       --bg: #f5f0e8;
@@ -33,7 +33,6 @@
       flex-direction: column;
       transition: background 0.3s, color 0.3s;
     }
-    /* 書架 */
     #shelf {
       flex: 1;
       display: flex;
@@ -85,7 +84,6 @@
       font-size: 1rem;
       cursor: pointer;
     }
-    /* 閱讀器 */
     #reader {
       display: none;
       flex-direction: column;
@@ -198,7 +196,6 @@
   </style>
 </head>
 <body>
-  <!-- 書架畫面 -->
   <div id="shelf">
     <h1>📚 我的書架</h1>
     <ul id="bookList"></ul>
@@ -208,7 +205,6 @@
     </div>
   </div>
 
-  <!-- 閱讀器畫面 -->
   <div id="reader">
     <div class="toolbar">
       <button id="backBtn">← 書架</button>
@@ -241,7 +237,6 @@
     </div>
   </div>
 
-  <!-- 書籤面板 -->
   <div class="bookmarks-panel" id="bookmarksPanel">
     <h3>🔖 書籤列表</h3>
     <button id="closeBookmarks" style="float:right">✕</button>
@@ -250,6 +245,12 @@
 
   <script>
     (function() {
+      // 檢查 Dexie 是否成功載入
+      if (typeof Dexie === 'undefined') {
+        alert('Dexie.js 載入失敗，請檢查網路或換用其他瀏覽器（建議 Chrome/Edge）。');
+        return;
+      }
+
       /* ====== 資料庫設定 (Dexie) ====== */
       const db = new Dexie('LightReaderDB');
       db.version(1).stores({
@@ -257,14 +258,20 @@
         bookmarks: 'id, bookId, chapterIndex, pageIndex, text, createdAt'
       });
 
+      // 測試資料庫能否開啟
+      db.open().catch(err => {
+        alert('無法開啟本地資料庫，可能被瀏覽器封鎖（無痕模式？公司政策？）。\n建議使用一般模式或 Chrome/Edge。\n錯誤：' + err.message);
+        console.error('DB open error:', err);
+      });
+
       /* ====== 全域狀態 ====== */
-      let currentBook = null;         // 當前書籍物件
-      let chapters = [];             // [{title, content}]
+      let currentBook = null;
+      let chapters = [];
       let currentChapterIdx = 0;
-      let pagesCache = new Map();    // key: `${chapterIdx}-${fontSize}`, value: string[]
+      let pagesCache = new Map();
       let currentPageIdx = 0;
       let ttsUtterance = null;
-      let autoTTS = false;           // 是否自動朗讀下一頁
+      let autoTTS = false;
 
       const pageContent = document.getElementById('pageContent');
       const shelfDiv = document.getElementById('shelf');
@@ -282,7 +289,6 @@
       const ttsPauseBtn = document.getElementById('ttsPauseBtn');
       const ttsStopBtn = document.getElementById('ttsStopBtn');
 
-      /* ====== 輔助函式 ====== */
       function detectChapters(text) {
         const lines = text.split(/\r?\n/);
         const chapters = [];
@@ -312,7 +318,6 @@
       function paginate(chapterContent, fontSize) {
         const key = `${currentChapterIdx}-${fontSize}`;
         if (pagesCache.has(key)) return pagesCache.get(key);
-        // 使用一個隱藏的測量容器
         const testDiv = document.createElement('div');
         testDiv.style.position = 'absolute';
         testDiv.style.visibility = 'hidden';
@@ -324,15 +329,13 @@
         testDiv.style.padding = '1rem';
         testDiv.style.boxSizing = 'border-box';
         document.body.appendChild(testDiv);
-        const maxHeight = pageContent.clientHeight - 4; // 考慮內邊距
+        const maxHeight = pageContent.clientHeight - 4;
         const words = chapterContent;
         let pages = [];
-        let currentPage = '';
         testDiv.textContent = '';
         for (let i = 0; i < words.length; i++) {
           testDiv.textContent += words[i];
           if (testDiv.scrollHeight > maxHeight) {
-            // 移除最後一個字，儲存前一頁
             const line = testDiv.textContent.slice(0, -1);
             pages.push(line);
             testDiv.textContent = words[i];
@@ -357,18 +360,15 @@
         pageContent.textContent = pages[currentPageIdx] || '';
         chapterTitle.textContent = chapters[currentChapterIdx].title;
         pageIndicator.textContent = `第 ${currentChapterIdx+1}/${chapters.length} 章 · 頁 ${currentPageIdx+1}/${pages.length}`;
-        // 計算全書進度百分比
         const totalChars = chapters.reduce((sum, ch) => sum + ch.content.length, 0);
         let charsBefore = 0;
         for (let i = 0; i < currentChapterIdx; i++) charsBefore += chapters[i].content.length;
         const posInChapter = pages.slice(0, currentPageIdx).reduce((sum, p) => sum + p.length, 0);
         const overallProgress = totalChars > 0 ? (charsBefore + posInChapter) / totalChars : 0;
         progressPercent.textContent = Math.round(overallProgress * 100) + '%';
-        // 更新章節目錄高亮
         document.querySelectorAll('#chapterList li').forEach((li, idx) => {
           li.classList.toggle('active', idx === currentChapterIdx);
         });
-        // 儲存進度
         if (currentBook.id) {
           db.books.update(currentBook.id, { progress: { chapterIdx: currentChapterIdx, pageIdx: currentPageIdx, fontSize: fontSize } });
         }
@@ -378,7 +378,7 @@
         if (chapterIdx < 0 || chapterIdx >= chapters.length) return;
         currentChapterIdx = chapterIdx;
         currentPageIdx = pageIdx;
-        pagesCache.clear(); // 字型或章節改變需重建分頁
+        pagesCache.clear();
         renderPage();
       }
 
@@ -402,7 +402,6 @@
         renderPage();
       }
 
-      /* ====== 朗讀功能 ====== */
       function stopTTS() {
         speechSynthesis.cancel();
         ttsUtterance = null;
@@ -450,7 +449,6 @@
         }
       }
 
-      /* ====== 書籤管理 ====== */
       async function addBookmark() {
         if (!currentBook) return;
         const pageText = pageContent.textContent.substring(0, 30);
@@ -474,7 +472,6 @@
             <button class="delete-book" data-id="${m.id}">🗑️</button>
           </div>
         `).join('');
-        // 綁定跳轉與刪除
         bookmarkListDiv.querySelectorAll('.bookmark-item').forEach(el => {
           el.addEventListener('click', (e) => {
             if (e.target.tagName === 'BUTTON') return;
@@ -494,7 +491,6 @@
         });
       }
 
-      /* ====== 書籍載入與書架 ====== */
       async function loadBookshelf() {
         const books = await db.books.orderBy('addedAt').reverse().toArray();
         const bookList = document.getElementById('bookList');
@@ -508,7 +504,6 @@
             </li>
           `;
         }).join('');
-        // 綁定點擊開啟書籍
         document.querySelectorAll('.book-card').forEach(card => {
           card.addEventListener('click', async (e) => {
             if (e.target.classList.contains('delete-book')) return;
@@ -516,7 +511,6 @@
             await openBook(id);
           });
         });
-        // 綁定刪除按鈕
         document.querySelectorAll('.delete-book').forEach(btn => {
           btn.addEventListener('click', async (e) => {
             e.stopPropagation();
@@ -537,17 +531,13 @@
         if (!book) return;
         currentBook = book;
         chapters = chaptersFromJson(book.chaptersJson);
-        // 恢復進度
         const prog = book.progress || { chapterIdx: 0, pageIdx: 0, fontSize: 18 };
         currentChapterIdx = prog.chapterIdx || 0;
         currentPageIdx = prog.pageIdx || 0;
         fontSizeSelect.value = prog.fontSize || 18;
-        // 日夜模式
         if (book.darkmode) document.body.classList.add('dark');
         else document.body.classList.remove('dark');
-        // 重建章節列表
         chapterListUl.innerHTML = chapters.map((ch, i) => `<li data-idx="${i}">${ch.title}</li>`).join('');
-        // 綁定點擊
         chapterListUl.querySelectorAll('li').forEach(li => {
           li.addEventListener('click', () => {
             const idx = parseInt(li.dataset.idx);
@@ -555,7 +545,6 @@
             sidebar.style.display = 'none';
           });
         });
-        // 顯示閱讀器
         shelfDiv.style.display = 'none';
         readerDiv.style.display = 'flex';
         pagesCache.clear();
@@ -576,16 +565,12 @@
           progress: { chapterIdx: 0, pageIdx: 0, fontSize: 18 },
           darkmode: false
         });
-        // 預設字型與模式
         fontSizeSelect.value = 18;
         document.body.classList.remove('dark');
         loadBookshelf();
-        // 直接打開新書
         await openBook(id);
       }
 
-      /* ====== 事件綁定 ====== */
-      // 上傳按鈕
       document.getElementById('uploadBtn').addEventListener('click', () => {
         document.getElementById('fileInput').click();
       });
@@ -595,7 +580,6 @@
         e.target.value = '';
       });
 
-      // 回到書架
       document.getElementById('backBtn').addEventListener('click', () => {
         stopTTS();
         readerDiv.style.display = 'none';
@@ -606,7 +590,6 @@
         bookmarksPanel.style.display = 'none';
       });
 
-      // 字型大小
       fontSizeSelect.addEventListener('change', () => {
         document.documentElement.style.setProperty('--font-size', fontSizeSelect.value + 'px');
         pagesCache.clear();
@@ -616,7 +599,6 @@
         }
       });
 
-      // 日夜模式
       darkModeBtn.addEventListener('click', () => {
         document.body.classList.toggle('dark');
         if (currentBook) {
@@ -624,12 +606,10 @@
         }
       });
 
-      // 章節目錄切換
       document.getElementById('toggleChapterList').addEventListener('click', () => {
         sidebar.style.display = sidebar.style.display === 'none' ? 'block' : 'none';
       });
 
-      // 書籤按鈕
       document.getElementById('bookmarkBtn').addEventListener('click', () => {
         bookmarksPanel.style.display = bookmarksPanel.style.display === 'none' ? 'block' : 'none';
         loadBookmarks();
@@ -638,7 +618,6 @@
         bookmarksPanel.style.display = 'none';
       });
 
-      // TTS 控制
       ttsPlayBtn.addEventListener('click', () => {
         autoTTS = false;
         playCurrentPage();
@@ -649,7 +628,6 @@
         stopTTS();
       });
 
-      // 鍵盤快捷鍵
       document.addEventListener('keydown', (e) => {
         if (!currentBook) return;
         if (e.key === 'ArrowRight') { e.preventDefault(); nextPage(); }
@@ -660,7 +638,7 @@
             if (speechSynthesis.paused) resumeTTS();
             else pauseTTS();
           } else {
-            autoTTS = true; // 空白鍵啟動自動翻頁朗讀
+            autoTTS = true;
             playCurrentPage();
           }
         }
@@ -670,7 +648,6 @@
         }
       });
 
-      // 點擊閱讀區左右側翻頁 (可選)
       pageContent.addEventListener('click', (e) => {
         const rect = pageContent.getBoundingClientRect();
         const x = e.clientX - rect.left;
@@ -679,7 +656,6 @@
         else if (x > width * 0.7) nextPage();
       });
 
-      // 窗口大小改變時重新計算分頁
       window.addEventListener('resize', () => {
         if (currentBook) {
           pagesCache.clear();
@@ -687,7 +663,6 @@
         }
       });
 
-      // 初始載入書架
       loadBookshelf();
     })();
   </script>
